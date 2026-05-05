@@ -1,19 +1,25 @@
 # ircII UTF-8 patches
 
 Patches against ircII 20260115 adding UTF-8 handling to input and window code. Suitable only with 1 or 2 byte chars.
+
+After applying, set the following in your ircII config:
+
+```
 set IRC_ENCODING UTF-8
 set INPUT_ENCODING UTF-8
 set DISPLAY_ENCODING UTF-8
 set EIGHT_BIT_CHARACTERS ON
-
+```
 
 ## Apply
 
 Place both patch files in the root of the ircII source tree, then:
 
-    cd ircii-20260115
-    patch -p0 < utf8_input.patch
-    patch -p0 < utf8_window.patch
+```
+cd ircii-20260115
+patch -p0 < utf8_input.patch
+patch -p0 < utf8_window.patch
+```
 
 This patches `source/input.c` and `source/window.c`.
 
