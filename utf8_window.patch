@@ -1,0 +1,45 @@
+--- source/window.c	2026-01-16 11:18:42.000000000 +0200
++++ source/window.c	2026-05-05 16:07:18.621922342 +0300
+@@ -1014,20 +1014,29 @@
+ 		default:	/* Anything else, make it displayable */
+ 			if (indent == -1)
+ 				indent = pos - nd_cnt;
+-   		   	
+-			decode_mb(ptr, lbuf + pos, sizeof(lbuf) - pos, &mbdata);
+-			
+-			/* If the sequence takes multiple columns,
+-			 * be wrappable now when we can
+-			 */
+-			if (mbdata.num_columns > 1)
+-				word_break = pos;
++/* --- UTF-8 FALLTHROUGH BEGINS --- */
++        if ((unsigned char)*ptr >= 0x80)
++        {
++                /* Copy the byte as is without decode_mb() */
++                lbuf[pos++] = *ptr;
++                /* ASSUMTION: Every character has length 1 on terminal */
++                col++; 
++        }
++        else
++        {
++                /* Original logic for other chars */
++                decode_mb(ptr, lbuf + pos, sizeof(lbuf) - pos, &mbdata);
+ 
+-			pos += mbdata.output_bytes;
+-			nd_cnt += mbdata.output_bytes - mbdata.num_columns;
+-			ptr += mbdata.input_bytes - 1;
+-			col += mbdata.num_columns;
+-			break;
++                if (mbdata.num_columns > 1)
++                        word_break = pos;
++
++                pos += mbdata.output_bytes;
++                nd_cnt += mbdata.output_bytes - mbdata.num_columns;
++                ptr += mbdata.input_bytes - 1;
++                col += mbdata.num_columns;
++        }
++        /* --- UTF-8 FALLTHROUGH ENDS --- */   		   	
++                    break;
+ 		}
+ 		if (pos >= sizeof(lbuf) - 1)
+ 			*ptr = '\0';

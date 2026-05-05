@@ -1,0 +1,165 @@
+--- source/input.c	2026-01-16 11:18:42.000000000 +0200
++++ source/input.c	2026-05-05 15:46:25.345707960 +0300
+@@ -145,14 +145,7 @@
+ {
+ 	if (!displayable_unival(unival, conv))
+ 	{
+-		/* undisplayable values are printed raw */
+-		if (unival < 0x80)
+-			return 1;
+-		if (unival < 0x800)
+-			return 2;
+-		if (unival < 0x10000)
+-			return 3;
+-		return 4;
++		return 1;
+ 	}
+ 	return calc_unival_width(unival);
+ }
+@@ -161,7 +154,6 @@
+ input_do_set_cursor_pos(unsigned pos)
+ {
+ 	ScreenInputData *inputdata = screen_get_inputdata(get_current_screen());
+-
+ 	inputdata->buffer.pos = pos;
+ 	update_input(UPDATE_JUST_CURSOR);
+ }
+@@ -291,18 +283,27 @@
+ 		for (bytes = 0; n < 0 && pos > limit; ++n)
+ 		{
+ 			/* Go back until we reach a beginning of a character */
+-			for (;;)
++			unsigned length;
++			unsigned p = pos;
++			while (p > limit)
+ 			{
+-				unsigned length = calc_unival_length(buf + --pos);
+-				if (length)
++				p--;
++				length = calc_unival_length(buf + p);
++				/* Accept if we found a valid UTF-8 start byte:
++				 * - length >= 2 (multi-byte sequence)
++				 * - length == 1 AND byte is NOT a continuation (0x80-0xBF) */
++				if (length > 0 && p + length == pos)
+ 				{
+-					bytes += length;
+-					break;
++					unsigned char ch = buf[p];
++					int is_continuation = (ch >= 0x80 && ch <= 0xBF);
++					if (length > 1 || !is_continuation)
++					{
++						bytes += length;
++						break;
++					}
+ 				}
+-				/* But don't go more than we're allowed to */
+-				if (pos == limit)
+-					break;
+ 			}
++			pos = p;
+ 		}
+ 		input_do_delete_raw(-bytes, do_save_cut);
+ 	}
+@@ -477,6 +478,8 @@
+ 		for (column = ptr = 0; ptr < pos; )
+ 		{
+ 			unsigned unival = calc_unival(buf+ptr);
++			unsigned len = calc_unival_length(buf+ptr);
++			unsigned width = input_do_calculate_width(unival, display_conv);
+ 
+ 			if (!term_echo && ptr >= limit)
+ 				unival = ' ';
+@@ -501,15 +504,36 @@
+ 		}
+ 
+ 		/*
+-		 * XXX this is a hack.  this avoids the cursor going back to the
++		 * XXX this is a hack. this avoids the cursor going back to the
+ 		 * very start of the line when scrolling input, but instead keeping
+ 		 * WIDTH worth of characters on the input line visible from the
+ 		 * prior context.
+ 		 */
+ 		if (ptr > WIDTH && get_co() > (WIDTH*2))
+ 		{
+-			ptr -= WIDTH;
+-			column -= WIDTH;
++			/* Go back WIDTH visual columns, not bytes */
++			unsigned visual_width = WIDTH;
++			unsigned new_ptr = ptr;
++			unsigned new_column = column;
++			while (new_ptr > limit && visual_width > 0 && new_ptr > 0)
++			{
++				unsigned len = calc_unival_length(buf + new_ptr - 1);
++				if (len > 0 && new_ptr >= len)
++				{
++					new_ptr -= len;
++					unsigned unival = calc_unival(buf + new_ptr);
++					new_column -= input_do_calculate_width(unival, display_conv);
++					visual_width--;
++				}
++				else
++				{
++					break;
++				}
++			}
++			ptr = new_ptr;
++			/* If the character BEFORE first visible position is multibyte, add +1 */
++			unsigned prev_len = (new_ptr > limit) ? calc_unival_length(buf + new_ptr - 1) : 1;
++			column = new_column + (prev_len > 1 ? 1 : 0);
+ 		}
+ 
+ 		/* If the left edge has been moved, redraw the input line */
+@@ -544,7 +568,7 @@
+ 			
+ 			if (displayable_unival(unival, display_conv))
+ 			{
+-				column += calc_unival_width(unival);
++				column += input_do_calculate_width(unival, display_conv);
+ 				if (!term_echo && unival == ' ')
+ 				{
+ 					memcpy(VisBuf+optr, " ", 1);
+@@ -565,7 +589,7 @@
+ 				for (n = 0; n < len; ++n)
+ 					VisBuf[optr++] = (buf[iptr++] & 127) | 64;
+ 				VisBuf[optr++] = REV_TOG;
+-				column += len;
++				column += 1;
+ 			}
+ 		}
+ 		VisBuf[optr] = '\0';
+@@ -647,7 +671,6 @@
+ 		{
+ 			/* Skip over 1 character */
+ 			pos += calc_unival_length(buf+pos);
+-			
+ 			input_do_set_cursor_pos(pos);
+ 		}
+ 	}
+@@ -658,13 +681,23 @@
+ 		if (pos > limit)
+ 		{
+ 			/* Go back until we reach a beginning of a character */
+-			while (!calc_unival_length(buf + --pos))
++			unsigned p = pos;
++			while (p > limit)
+ 			{
+-				/* But don't go more than we're allowed to */
+-				if (pos == limit)
++				p--;
++				unsigned length = calc_unival_length(buf + p);
++				/* Accept valid UTF-8 start byte */
++				if (length > 0 && p + length == pos)
++				{
++					unsigned char ch = buf[p];
++					int is_continuation = (ch >= 0x80 && ch <= 0xBF);
++					if (length > 1 || !is_continuation)
++						break;
++				}
++				if (p == limit)
+ 					break;
+ 			}
+-			input_do_set_cursor_pos(pos);
++			input_do_set_cursor_pos(p);
+ 		}
+ 	}
+ }
