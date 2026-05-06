@@ -1,6 +1,43 @@
 --- source/window.c	2026-01-16 11:18:42.000000000 +0200
-+++ source/window.c	2026-05-05 16:07:18.621922342 +0300
-@@ -1014,20 +1014,29 @@
++++ source/window.c	2026-05-06 21:46:01.322402711 +0300
+@@ -52,6 +52,36 @@
+ #include "hook.h"
+ #include "dcc.h"
+ #include "translat.h"
++
++/* Convert Latin-1 (ISO-8859-1) characters to UTF-8 for display */
++static void fix_latin1_to_utf8(const u_char *input, u_char *output)
++{
++	while (*input)
++	{
++		unsigned char b = (unsigned char)*input;
++		unsigned char next = (unsigned char)*(input + 1);
++		
++		/* If this looks like UTF-8 start AND has proper continuation, copy as-is */
++		if (b >= 0xC2 && b <= 0xF4 && next >= 0x80 && next < 0xC0)
++		{
++			*output++ = *input++;
++			while ((unsigned char)*input >= 0x80 && (unsigned char)*input < 0xC0)
++				*output++ = *input++;
++		}
++		/* Latin-1 character 0xA0-0xFF -> convert to UTF-8 */
++		else if (b >= 0xA0)
++		{
++			*output++ = 0xC3;
++			*output++ = b - 0x40;
++			input++;
++		}
++		else
++		{
++			*output++ = *input++;
++		}
++	}
++	*output = '\0';
++}
+ #include "icb.h"
+ #include "parse.h"
+ #include "strsep.h"
+@@ -1014,20 +1044,29 @@
  		default:	/* Anything else, make it displayable */
  			if (indent == -1)
  				indent = pos - nd_cnt;
@@ -12,6 +49,12 @@
 -			 */
 -			if (mbdata.num_columns > 1)
 -				word_break = pos;
+-
+-			pos += mbdata.output_bytes;
+-			nd_cnt += mbdata.output_bytes - mbdata.num_columns;
+-			ptr += mbdata.input_bytes - 1;
+-			col += mbdata.num_columns;
+-			break;
 +/* --- UTF-8 FALLTHROUGH BEGINS --- */
 +        if ((unsigned char)*ptr >= 0x80)
 +        {
@@ -24,12 +67,7 @@
 +        {
 +                /* Original logic for other chars */
 +                decode_mb(ptr, lbuf + pos, sizeof(lbuf) - pos, &mbdata);
- 
--			pos += mbdata.output_bytes;
--			nd_cnt += mbdata.output_bytes - mbdata.num_columns;
--			ptr += mbdata.input_bytes - 1;
--			col += mbdata.num_columns;
--			break;
++
 +                if (mbdata.num_columns > 1)
 +                        word_break = pos;
 +
@@ -43,3 +81,32 @@
  		}
  		if (pos >= sizeof(lbuf) - 1)
  			*ptr = '\0';
+@@ -1206,19 +1245,22 @@
+ 
+ 	if (flag)
+ 	{
+-		size_t	len = my_strlen(str);
+-		u_char	*my_str = new_malloc(len + 2);
+-		u_char	**lines, **curlinep, **freelines;
+-		int	logged;
++		u_char *converted = new_malloc(strlen(str) * 2 + 1);
++		fix_latin1_to_utf8(str, converted);
++		size_t len = strlen(converted);
++		u_char *my_str = new_malloc(len + 2);
++		u_char **lines, **curlinep, **freelines;
++		int logged;
+ 
+-		add_to_window_log(window, str);
++		add_to_window_log(window, str);  /* Original to log */
+ 		display_highlight(OFF);
+ 		display_bold(OFF);
+ 		display_colours(get_int_var(FOREGROUND_COLOUR_VAR),
+ 		get_int_var(BACKGROUND_COLOUR_VAR));
+-		memmove(my_str, str, len);
++		memcpy(my_str, converted, len);
+ 		my_str[len] = ALL_OFF;
+ 		my_str[len + 1] = '\0';
++		new_free(&converted);
+ 		lines = add_to_lastlog(window, my_str);
+ 		if (!lines)
+ 			freelines = lines = split_up_line(my_str);
